@@ -1,104 +1,109 @@
 import streamlit as st
 import pandas as pd
 
-# ------------------------------------------------------
-# CARGAR ÍTEMS DESDE GITHUB
-# ------------------------------------------------------
+# ---------------------------------------------
+# CONFIGURACIÓN GENERAL
+# ---------------------------------------------
+st.set_page_config(page_title="Cuestionario Pruebas Estadísticas", layout="centered")
+
+RAW_GITHUB_URL = "https://raw.githubusercontent.com/usuario/repositorio/rama/items.csv"  # <-- CAMBIAR AQUÍ
+
 @st.cache_data
-def cargar_items(url):
-    try:
-        df = pd.read_csv(url)
-        return df
-    except Exception as e:
-        st.error(f"Error cargando los datos: {e}")
-        return pd.DataFrame()
+def cargar_items():
+    return pd.read_csv(RAW_GITHUB_URL)
 
-# ------------------------------------------------------
-# CONFIGURACIÓN INICIAL
-# ------------------------------------------------------
-st.set_page_config(page_title="Cuestionario Estadístico", page_icon="📊")
-
-st.title("📊 Cuestionario de Pruebas Estadísticas")
-st.write("Responde cada ítem. Recibirás retroalimentación inmediata.")
-
-# ------------------------------------------------------
-# URL DEL ARCHIVO EN GITHUB (RAW)
-# ⚠️ IMPORTANTE: REEMPLAZA ESTO POR TU LINK REAL RAW
-# ------------------------------------------------------
-url_items = "https://raw.githubusercontent.com/usuario/repositorio/rama/items.csv"
-
-items = cargar_items(url_items)
-
-if items.empty:
+# Cargar datos
+try:
+    items = cargar_items()
+except Exception as e:
+    st.error(f"Error cargando los datos: {e}")
     st.stop()
 
-# ------------------------------------------------------
-# CONTROL DE ESTADO
-# ------------------------------------------------------
+# Asegurarse de que existan columnas requeridas
+columnas_requeridas = {"pregunta", "opcion_a", "opcion_b", "opcion_c", "opcion_d", "respuesta_correcta"}
+if not columnas_requeridas.issubset(set(items.columns)):
+    st.error("El CSV no contiene las columnas necesarias: pregunta, opcion_a, opcion_b, opcion_c, opcion_d, respuesta_correcta")
+    st.stop()
+
+# ---------------------------------------------
+# ESTADOS DE SESIÓN
+# ---------------------------------------------
 if "indice" not in st.session_state:
     st.session_state.indice = 0
 
-if "aciertos" not in st.session_state:
-    st.session_state.aciertos = 0
+if "puntaje" not in st.session_state:
+    st.session_state.puntaje = 0
 
 if "respondido" not in st.session_state:
     st.session_state.respondido = False
 
-if "seleccion" not in st.session_state:
-    st.session_state.seleccion = None
+if "retro" not in st.session_state:
+    st.session_state.retro = ""
 
 
-total = len(items)
+# ---------------------------------------------
+# FUNCIÓN PARA AVANZAR
+# ---------------------------------------------
+def siguiente_pregunta():
+    st.session_state.indice += 1
+    st.session_state.respondido = False
+    st.session_state.retro = ""
 
-# ------------------------------------------------------
-# MOSTRAR ÍTEM ACTUAL
-# ------------------------------------------------------
-if st.session_state.indice < total:
+
+# ---------------------------------------------
+# MOSTRAR PREGUNTA ACTUAL
+# ---------------------------------------------
+if st.session_state.indice < len(items):
 
     fila = items.iloc[st.session_state.indice]
-    pregunta = fila["pregunta"]
-    opciones = fila["opciones"].split(";")
-    correcta = fila["respuesta_correcta"]
 
-    st.subheader(f"Pregunta {st.session_state.indice + 1} de {total}")
-    st.write(pregunta)
+    st.title("Cuestionario: Elección de Pruebas Estadísticas")
+    st.subheader(f"Pregunta {st.session_state.indice + 1} de {len(items)}")
 
-    # Selección del usuario
-    seleccion = st.radio("Selecciona una opción:", opciones, key=f"preg_{st.session_state.indice}")
+    st.write(f"### {fila['pregunta']}")
+
+    opciones = {
+        "A": fila["opcion_a"],
+        "B": fila["opcion_b"],
+        "C": fila["opcion_c"],
+        "D": fila["opcion_d"]
+    }
+
+    seleccion = st.radio("Selecciona una opción:", list(opciones.keys()))
 
     # Botón para responder
-    if st.button("Responder") and not st.session_state.respondido:
-        st.session_state.respondido = True
-        st.session_state.seleccion = seleccion
+    if st.button("Responder"):
 
-        # Retroalimentación
-        if seleccion == correcta:
-            st.success("✔ ¡Correcto!")
-            st.session_state.aciertos += 1
+        if st.session_state.respondido:
+            st.warning("Ya respondiste esta pregunta.")
         else:
-            st.error(f"✘ Incorrecto. La respuesta correcta es: **{correcta}**")
+            correcta = fila["respuesta_correcta"].strip().upper()
 
-    # Botón para continuar
+            if seleccion == correcta:
+                st.session_state.puntaje += 1
+                st.session_state.retro = "✅ ¡Correcto!"
+            else:
+                st.session_state.retro = f"❌ Incorrecto. La respuesta correcta era: **{correcta}**"
+
+            st.session_state.respondido = True
+
+    # Mostrar retroalimentación
     if st.session_state.respondido:
-        if st.button("Siguiente ➜"):
-            st.session_state.indice += 1
-            st.session_state.respondido = False
-            st.session_state.seleccion = None
-            st.rerun()
+        st.info(st.session_state.retro)
+
+        if st.button("Siguiente"):
+            siguiente_pregunta()
 
 else:
-    # ------------------------------------------------------
+    # ---------------------------------------------
     # RESULTADO FINAL
-    # ------------------------------------------------------
-    st.success("🎉 ¡Has completado el cuestionario!")
-
-    st.subheader("Resultados")
-    st.write(f"**Aciertos:** {st.session_state.aciertos} de {total}")
-    st.write(f"**Porcentaje:** {round((st.session_state.aciertos / total) * 100, 2)}%")
+    # ---------------------------------------------
+    st.title("🎉 ¡Has terminado el cuestionario!")
+    st.subheader("Resultados finales:")
+    st.success(f"Puntaje obtenido: **{st.session_state.puntaje} / {len(items)}**")
 
     if st.button("Reiniciar cuestionario"):
         st.session_state.indice = 0
-        st.session_state.aciertos = 0
+        st.session_state.puntaje = 0
         st.session_state.respondido = False
-        st.session_state.seleccion = None
-        st.rerun()
+        st.session_state.retro = ""
